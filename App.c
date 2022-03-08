@@ -213,6 +213,8 @@ void EI_APP_cipGenerateContent(EI_API_CIP_NODE_T* pCipNode_p, uint16_t classId_p
     service.getAttrAllResponseCnt = 0;
     service.callback = NULL;
     service.code = EI_API_CIP_eSC_GETATTRSINGLE;
+
+    // Add Set Attribute_Single and Get_Attribute_Single services to class specified in paramater set
     EI_API_CIP_addClassService(pCip_s, classId_p, &service);
     service.code = EI_API_CIP_eSC_SETATTRSINGLE;
     EI_API_CIP_addClassService(pCip_s, classId_p, &service);
@@ -220,6 +222,7 @@ void EI_APP_cipGenerateContent(EI_API_CIP_NODE_T* pCipNode_p, uint16_t classId_p
     EI_API_CIP_createInstance(pCip_s, classId_p, instanceId_p);
 
     service.code = EI_API_CIP_eSC_GETATTRSINGLE;
+    // Add Set Attribute_Single and Get_Attribute_Single services to instance specified in parameter set
     EI_API_CIP_addInstanceService(pCip_s, classId_p, instanceId_p, &service);
     service.code = EI_API_CIP_eSC_SETATTRSINGLE;
     EI_API_CIP_addInstanceService(pCip_s, classId_p, instanceId_p, &service);
@@ -227,6 +230,7 @@ void EI_APP_cipGenerateContent(EI_API_CIP_NODE_T* pCipNode_p, uint16_t classId_p
     uint16_t attribID = 0x300;
 
     // 64 USINT (uint8_t).
+    // Create in total 120 Instance attributes
     for (i = 0; i < 64; i++)
     {
         EI_API_CIP_SAttr_t attr;
@@ -314,13 +318,15 @@ static bool EI_APP_cipSetup(EI_API_CIP_NODE_T* pCipNode_p)
     // Create new class 0x70 with read and write service and several attributes.
     EI_APP_cipGenerateContent(pCipNode_p, classId, instanceId);
 
+    // Create CIP assemblies with different access rules
     errCode = EI_API_CIP_createAssembly(pCipNode_p, 0xfe, EI_API_CIP_eAR_GET); // Input-only.
     errCode = EI_API_CIP_createAssembly(pCipNode_p, 0xff, EI_API_CIP_eAR_GET); // Listen-only.
 
     errCode = EI_API_CIP_createAssembly(pCipNode_p, 0x64, EI_API_CIP_eAR_GET_AND_SET);
     errCode = EI_API_CIP_createAssembly(pCipNode_p, 0x65, EI_API_CIP_eAR_GET_AND_SET);
 
-    for (i = 0x300; i < 0x305; i++)
+    // Add attributes created in EI_APP_cipGenerateContent to assemblies
+    for (i = 0x300; i < 0x305; i++) // i is attribute id
     {
         errCode = EI_API_CIP_addAssemblyMember(pCipNode_p, 0x64, classId, instanceId, i);
         if (errCode != EI_API_CIP_eERR_OK)
@@ -357,17 +363,19 @@ static bool EI_APP_cipCreateCallback(EI_API_CIP_NODE_T* pCipNode_p)
     uint8_t errorCnt = 0;   // Variable to check sum up return errors.
 
     // Your callback function which stores your data when triggered.
+    // Specific to AppPerm.c
     EI_API_CIP_CBService ptr_my_config_cb = EI_APP_PERM_configCb;
 
     // Register callbacks for Set_Attribute_Single service.
     EI_API_CIP_SService_t srvc = { EI_API_CIP_eSC_SETATTRSINGLE, 0, NULL, ptr_my_config_cb };
-    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x00F5, 0x0001, &srvc);
-    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x00F6, 0x0001, &srvc);
-    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x00F6, 0x0002, &srvc);
-    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x0043, 0x0001, &srvc);
-    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x0048, 0x0001, &srvc);
+    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x00F5, 0x0001, &srvc);   // TCP/IP Interface
+    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x00F6, 0x0001, &srvc);   // Ethernet Link
+    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x00F6, 0x0002, &srvc);   // Ethernet Link
+    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x0043, 0x0001, &srvc);   // Time Synch
+    EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x0048, 0x0001, &srvc);   // QoS
 
     // Add callback for Reset service of class ID 0x01.
+    // Reset call back is defined in AppPerm.c
     EI_API_CIP_SService_t srvcReset = { EI_API_CIP_eSC_RESET, 0, NULL, EI_APP_PERM_reset };
     if (EI_API_CIP_setInstanceServiceFunc(pCipNode_p, 0x01, 0x01, &srvcReset) != EI_API_CIP_eERR_OK) errorCnt++;
 
@@ -397,7 +405,7 @@ bool EI_APP_init(void)
     // Initialize adapter for 1 (one) interface.
     pAdp_s = EI_API_ADP_new(1);
 
-    // Init module for permanent data.
+    // Init module for permanent data. May not need Since it interface with QSPI Flash Chip
     EI_APP_PERM_init(pAdp_s);
 
 #if defined(TIME_SYNC)
@@ -407,7 +415,7 @@ bool EI_APP_init(void)
     // Setup error handler for the EtherNet/IP stack.
     EI_API_ADP_setErrorHandlerFunc(EI_APP_stackErrorHandlerCb);
 
-    EI_APP_getMacAddr();
+    EI_APP_getMacAddr(); // Gets Media access controller address
 
     // Initialize data for the adapter.
     EI_APP_adpInit();
@@ -417,24 +425,34 @@ bool EI_APP_init(void)
     EI_API_ADP_setQuickConnectSupported(pAdp_s);
 #endif
 
+    // Init PHY reset GPIO, load PRU, and start PRU firmware
     EI_APP_stackInit(EI_APP_pruLogicalInstance_g);
 
 
     // Create a CIP node.
     pCip_s = EI_API_CIP_NODE_new();
 
-    // Create callbacks for changed values.
+    // Create callbacks for changed values. Likely need to change call backs
     EI_APP_cipCreateCallback(pCip_s);
 
-    // Create vendor specific classes.
+    // Create vendor specific classes. Likely need to change setup
     EI_APP_cipSetup(pCip_s);
 
-    IDK_init();
+    IDK_init(); // Initializes LEDs
 
-    EI_APP_CLASS71_init(pCip_s);
+    /*
+     * Demonstrates how to create class and instance attributes.
+     * Call EI_APP_CLASS71_run() cyclically to increment attribute data.
+     * See other functions in AppClass71.c for manufacturer specific functionality
+     */
+    EI_APP_CLASS71_init(pCip_s); // Likely modify to Mechaspin needs
 
-    // Finally apply.
-    EI_API_ADP_init(pAdp_s);
+
+    /*
+     * Reads parameter values from data in non-volatile memory.
+     * Initialize application data such as vendor ID.
+     */
+    EI_API_ADP_init(pAdp_s); // Finally apply.
 
     EI_API_ADP_getMacAddr(pAdp_s, &macAddr);
 
@@ -508,20 +526,21 @@ void EI_APP_mainTask(
 {
     uint32_t err;
 
-    Board_init();
-    Drivers_open();
-    Board_driversOpen();
+    Board_init();        // board specific initialization
+    Drivers_open();      // Open OSPI, I2C, and UART drivers
+    Board_driversOpen(); // Open Flash, LED, and PHY drivers
+
     //EIP_socInit();
     //GPIO_init();
 
-    err = HWAL_init ();
+    err = HWAL_init ();  // Init hardware abstraction layer
     if (err != OSAL_NO_ERROR)
     {
         goto laError;
     }
 
     int16_t resetServiceFlag;
-    if (false == EI_APP_init())
+    if (false == EI_APP_init()) // Init KUNBUS Ethernet/IP example application
     {
         OSAL_printf("Fatal error: application initialization failed\n");
         return;
@@ -529,16 +548,21 @@ void EI_APP_mainTask(
 
     for (;;)
     {
-        EI_APP_run();
-        resetServiceFlag = EI_APP_PERM_getResetRequired();
+        EI_APP_run(); // EtherNet/IP DTK API and handle CIP attributes. Currently Linked to LED array
+
+        // Currently defined in AppPerm.c
+        resetServiceFlag = EI_APP_PERM_getResetRequired(); // Test object (code 0x01) received reset service request
+
         if (resetServiceFlag  != -1)
         {
             break;
         }
-        if(EI_APP_PERM_getConfigChanged())
+        if(EI_APP_PERM_getConfigChanged()) // If there are configuration changes
         {
-            EI_APP_PERM_write();
+            EI_APP_PERM_write();           // Write to non-volatile memory
         }
+
+        // Skip remaining time and set thread to ready state in OS scheduler.
         OSAL_SCHED_yield();
     }
 
@@ -578,15 +602,16 @@ int main(
 {
     uint32_t err;
 
-    System_init ();
+    System_init (); // Init Driver Port Layer, System Controller Interface, and all peripheral drivers
 
+    // Register application specific error handler.
     OSAL_registerErrorHandler (EI_APP_osErrorHandlerCb);
 
 #if defined(QUICK_CONNECT)
     OSAL_printfSuppress(true);
 #endif
 
-    err = OSAL_init ();
+    err = OSAL_init (); // Init operating system abstraction layer
     if (err != OSAL_NO_ERROR)
     {
         goto laError;
@@ -595,6 +620,7 @@ int main(
     TaskP_Object appThreadHandle;
     TaskP_Params appThreadParam;
 
+    // Setup task parameters
     TaskP_Params_init(&appThreadParam);
 
     appThreadParam.name      = "main_task";
